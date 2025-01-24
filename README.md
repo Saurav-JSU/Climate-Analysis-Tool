@@ -28,7 +28,7 @@ A Python-based tool for analyzing and visualizing CMIP6 (Coupled Model Intercomp
 ## Installation
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/CMIP6-Analysis-Tool.git
+git clone https://github.com/Saurav-JSUMS/CMIP6-Analysis-Tool.git
 cd CMIP6-Analysis-Tool
 
 # Create and activate the conda environment
