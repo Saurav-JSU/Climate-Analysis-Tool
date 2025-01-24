@@ -24,6 +24,7 @@ A Python-based tool for analyzing and visualizing CMIP6 (Coupled Model Intercomp
 - Python 3.11.10
 - Anaconda or Miniconda
 - Google Earth Engine account (for GEE functionality)
+- VS Code
 
 ## Installation
 ```bash
@@ -43,9 +44,6 @@ pip install -e .
 ```bash
 # Activate environment
 conda activate gmap
-
-# Launch Jupyter Lab
-jupyter lab
 
 # Open `main.ipynb` to run analyses
 ```
