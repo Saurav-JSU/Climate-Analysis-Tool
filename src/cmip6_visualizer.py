@@ -107,6 +107,16 @@ class CMIP6Visualizer:
             'geometry': None,
             'dates': None
         }
+        self.temporal_data = None
+        self.status_label = None
+        self._create_export_dirs()
+
+    def _create_export_dirs(self):
+        """Create necessary export directories"""
+        import os
+        base_dir = "CMIP6_Exports"
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)
 
     def set_dataset(self, dataset: CMIP6Dataset) -> None:
         """Update the visualizer's dataset"""
@@ -538,124 +548,246 @@ class CMIP6Visualizer:
         except Exception as e:
             raise ValueError(f"Error creating temporal plot: {str(e)}")
 
+    def store_temporal_data(self, data):
+        """Store temporal data for export"""
+        self.temporal_data = data
+
+    def export_plot(self, b):
+        """Export temporal plot data"""
+        try:
+            if not hasattr(self, 'current_figure') or self.current_figure is None:
+                raise ValueError("No temporal data available")
+            
+            # Create directories
+            import os
+            export_dir = 'CMIP6_Exports/Plot_Data'
+            os.makedirs(export_dir, exist_ok=True)
+            
+            # Extract data from figure
+            data = {}
+            for trace in self.current_figure.data:
+                if trace.name and not trace.name.endswith('_uncertainty'):
+                    data[trace.name] = {
+                        'year': trace.x,
+                        'value': trace.y
+                    }
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f'{export_dir}/temporal_plot_{timestamp}.csv'
+            
+            # Convert to DataFrame and save
+            import pandas as pd
+            df = pd.DataFrame(data)
+            df.to_csv(filename, index=False)
+            
+            self.status_label.value = f"<p style='color: green'>Plot data exported to {filename}</p>"
+        except Exception as e:
+            self.status_label.value = f"<p style='color: red'>Error exporting plot: {str(e)}</p>"
+
+    def export_visible_maps(self, b):
+        """Export currently visible maps"""
+        try:
+            if not self.dataset or not hasattr(self, 'maps'):
+                raise ValueError("No maps available")
+
+            self.status_label.value = "<p style='color: blue'>Preparing visible maps export...</p>"
+            
+            tasks_started = 0
+            for i, period in enumerate(['historical', 'near_future', 'far_future']):
+                if i < len(self.maps):
+                    map_container = self.maps[i]
+                    if hasattr(map_container, 'year_dropdown'):
+                        selected_year = map_container.year_dropdown.value
+                        print(f"Exporting {period} year {selected_year}")
+                        self._export_single_year(period, selected_year, self.status_label)
+                        tasks_started += 1
+            
+            if tasks_started > 0:
+                self.status_label.value = f"<p style='color: green'>{tasks_started} export tasks started! Check GEE Tasks tab.</p>"
+            else:
+                self.status_label.value = "<p style='color: red'>No maps available to export</p>"
+                
+        except Exception as e:
+            self.status_label.value = f"<p style='color: red'>Error: {str(e)}</p>"
+
+    def export_all_years(self, b):
+        """Export all years for current model/scenario"""
+        try:
+            if not self.dataset:
+                raise ValueError("No dataset loaded")
+
+            self.status_label.value = "<p style='color: blue'>Starting export for all years...</p>"
+            
+            periods = {
+                'historical': range(1980, 2015),
+                'near_future': range(2015, 2061),
+                'far_future': range(2061, 2101)
+            }
+            
+            tasks_started = 0
+            for period, years in periods.items():
+                for year in years:
+                    print(f"Exporting {period} year {year}")
+                    self._export_single_year(period, year, self.status_label)
+                    tasks_started += 1
+            
+            self.status_label.value = f"<p style='color: green'>{tasks_started} export tasks started! Check GEE Tasks tab.</p>"
+        except Exception as e:
+            self.status_label.value = f"<p style='color: red'>Error: {str(e)}</p>"
+
+    def export_all_models(self, b):
+        """Export all years for all models"""
+        try:
+            if not self._current_analysis['geometry']:
+                raise ValueError("No geometry defined")
+
+            self.status_label.value = "<p style='color: blue'>Starting export for all models...</p>"
+            
+            tasks_started = 0
+            for model in CMIP6Dataset.list_available_models():
+                for scenario in [ScenarioType.SSP245, ScenarioType.SSP585]:
+                    temp_dataset = CMIP6Dataset(model, scenario)
+                    self.dataset = temp_dataset
+                    
+                    for period, years in {
+                        'historical': range(1980, 2015),
+                        'near_future': range(2015, 2061),
+                        'far_future': range(2061, 2101)
+                    }.items():
+                        for year in years:
+                            print(f"Exporting {model} {scenario.value} {period} {year}")
+                            self._export_single_year(
+                                period, year, 
+                                self.status_label,
+                                model_name=model,
+                                scenario_name=scenario.value
+                            )
+                            tasks_started += 1
+            
+            self.status_label.value = f"<p style='color: green'>{tasks_started} export tasks started! Check GEE Tasks tab.</p>"
+        except Exception as e:
+            self.status_label.value = f"<p style='color: red'>Error: {str(e)}</p>"
+
     def create_export_controls(self) -> widgets.VBox:
-        """Create enhanced export control widgets with GEE export support"""
-        # Create export buttons
-        export_maps_btn = widgets.Button(
-            description='Export GeoTIFF',
+        """Create enhanced export control widgets"""
+        export_visible_btn = widgets.Button(
+            description='Export Visible Years',
             button_style='info',
-            layout=Layout(width='150px')
+            layout=Layout(width='200px')
+        )
+
+        export_all_years_btn = widgets.Button(
+            description='Export All Years (Current Model)',
+            button_style='info',
+            layout=Layout(width='250px')
+        )
+
+        export_all_models_btn = widgets.Button(
+            description='Export All Years (All Models)',
+            button_style='warning',
+            layout=Layout(width='250px')
         )
 
         export_plot_btn = widgets.Button(
-            description='Export Data',
+            description='Export Plot Data',
             button_style='success',
             layout=Layout(width='150px')
         )
 
-        status_label = HTML(value="")
+        self.status_label = HTML(value="")
 
-        def export_maps(b):
+        def export_visible_maps(b):
             try:
-                if not self.dataset or not hasattr(self, 'maps') or not self._current_analysis['geometry']:
-                    raise ValueError("No data available to export")
+                if not self.dataset or not hasattr(self, 'maps'):
+                    raise ValueError("No maps available")
 
-                status_label.value = "<p style='color: blue'>Preparing GeoTIFF export...</p>"
+                self.status_label.value = "<p style='color: blue'>Preparing visible maps export...</p>"
+                tasks_started = 0
                 
-                # Get current visualization parameters
                 for i, period in enumerate(['historical', 'near_future', 'far_future']):
                     if i < len(self.maps):
                         map_container = self.maps[i]
                         selected_year = map_container.year_dropdown.value
-                        
-                        # Get the image for the selected year
-                        timeframe = getattr(TimeFrameType, period.upper())
-                        start_date = f"{selected_year}-01-01"
-                        end_date = f"{selected_year}-12-31"
-                        
-                        # Calculate index for export
-                        result, index_info = self.dataset.calculate_index(
-                            timeframe,
-                            start_date,
-                            end_date,
-                            self._current_analysis['geometry'],
-                            self._current_analysis['index']
-                        )
-
-                        # Prepare export task
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        task = ee.batch.Export.image.toDrive(
-                            image=result,
-                            description=f'cmip6_{index_info.name}_{period}_{selected_year}_{timestamp}',
-                            scale=10000,  # 10km resolution
-                            region=self._current_analysis['geometry'].bounds().getInfo(),
-                            maxPixels=1e9
-                        )
-                        
-                        # Start the export task
-                        task.start()
-                        
-                status_label.value = """
-                    <p style='color: green'>
-                        Export tasks started! Check your Google Earth Engine Tasks tab for progress.
-                        Files will appear in your Google Drive when complete.
-                    </p>
-                """
+                        self._export_single_year(period, selected_year, self.status_label)
+                        tasks_started += 1
+                
+                self.status_label.value = f"<p style='color: green'>{tasks_started} export tasks started! Check GEE Tasks tab.</p>"
             except Exception as e:
-                status_label.value = f"<p style='color: red'>Error exporting maps: {str(e)}</p>"
+                self.status_label.value = f"<p style='color: red'>Error: {str(e)}</p>"
 
-        def export_plot(b):
+        def export_all_years(b):
             try:
-                if not hasattr(self, 'current_figure') or self.current_figure is None:
-                    raise ValueError("No plot data available to export")
+                if not self.dataset:
+                    raise ValueError("No dataset loaded")
 
-                status_label.value = "<p style='color: blue'>Preparing data export...</p>"
+                self.status_label.value = "<p style='color: blue'>Starting export for all years...</p>"
+                tasks_started = 0
                 
-                # Extract data from the plot
-                data = {}
-                for trace in self.current_figure.data:
-                    if not trace.name.endswith('_uncertainty'):  # Skip uncertainty bands
-                        data[trace.name] = {
-                            'years': trace.x,
-                            'values': trace.y
-                        }
-
-                # Create CSV content
-                csv_content = "Period,Year,Value\n"
-                for period, period_data in data.items():
-                    for year, value in zip(period_data['years'], period_data['values']):
-                        if value is not None:  # Skip None values
-                            csv_content += f"{period},{year},{value}\n"
-
-                # Save to file
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f'cmip6_temporal_data_{timestamp}.csv'
+                for period, years in {
+                    'historical': range(1980, 2015),
+                    'near_future': range(2015, 2061),
+                    'far_future': range(2061, 2101)
+                }.items():
+                    for year in years:
+                        self._export_single_year(period, year, self.status_label)
+                        tasks_started += 1
                 
-                with open(filename, 'w') as f:
-                    f.write(csv_content)
-
-                status_label.value = f"""
-                    <p style='color: green'>
-                        Data exported successfully to {filename}!
-                    </p>
-                """
+                self.status_label.value = f"<p style='color: green'>{tasks_started} export tasks started!</p>"
             except Exception as e:
-                status_label.value = f"<p style='color: red'>Error exporting data: {str(e)}</p>"
+                self.status_label.value = f"<p style='color: red'>Error: {str(e)}</p>"
 
-        export_maps_btn.on_click(export_maps)
-        export_plot_btn.on_click(export_plot)
+        def export_all_models(b):
+            try:
+                if not self._current_analysis['geometry']:
+                    raise ValueError("No geometry defined")
+
+                self.status_label.value = "<p style='color: blue'>Starting export for all models...</p>"
+                tasks_started = 0
+                
+                for model in CMIP6Dataset.list_available_models():
+                    for scenario in [ScenarioType.SSP245, ScenarioType.SSP585]:
+                        temp_dataset = CMIP6Dataset(model, scenario)
+                        self.dataset = temp_dataset
+                        
+                        for period, years in {
+                            'historical': range(1980, 2015),
+                            'near_future': range(2015, 2061),
+                            'far_future': range(2061, 2101)
+                        }.items():
+                            for year in years:
+                                self._export_single_year(
+                                    period, year,
+                                    self.status_label,
+                                    model_name=model,
+                                    scenario_name=scenario.value
+                                )
+                                tasks_started += 1
+                
+                self.status_label.value = f"<p style='color: green'>{tasks_started} export tasks started!</p>"
+            except Exception as e:
+                self.status_label.value = f"<p style='color: red'>Error: {str(e)}</p>"
+
+        # Connect button handlers
+        export_visible_btn.on_click(export_visible_maps)
+        export_all_years_btn.on_click(export_all_years)
+        export_all_models_btn.on_click(export_all_models)
+        export_plot_btn.on_click(self.export_plot)
 
         return widgets.VBox([
             widgets.HTML("<h4>Export Options</h4>"),
-            widgets.HBox([export_maps_btn, export_plot_btn], 
-                       layout=Layout(justify_content='space-around')),
-            status_label
-        ], layout=Layout(
-            margin='20px 0',
-            padding='10px',
-            border='1px solid #ddd',
-            border_radius='5px'
-        ))
+            widgets.VBox([
+                widgets.HBox([export_visible_btn, export_plot_btn],
+                           layout=Layout(justify_content='space-around')),
+                widgets.HBox([export_all_years_btn, export_all_models_btn],
+                           layout=Layout(justify_content='space-around')),
+                self.status_label
+            ], layout=Layout(
+                margin='20px 0',
+                padding='10px',
+                border='1px solid #ddd',
+                border_radius='5px'
+            ))
+        ])
 
     def show_loading(self, show: bool = True) -> None:
         """Show or hide loading indicator"""
@@ -674,3 +806,55 @@ class CMIP6Visualizer:
         for map_container in self.maps:
             map_container.clear_layers()
         self.maps = []
+
+    def _export_single_year(self, period: str, year: int, status_label: HTML,
+                           model_name: str = None, scenario_name: str = None) -> None:
+        """Helper method to export a single year"""
+        try:
+            if not self._current_analysis:
+                raise ValueError("No analysis configuration found")
+                
+            if not self._current_analysis['geometry']:
+                raise ValueError("No geometry selected")
+                
+            timeframe = getattr(TimeFrameType, period.upper())
+            start_date = f"{year}-01-01"
+            end_date = f"{year}-12-31"
+
+            # Get model and scenario names
+            scenario_name = scenario_name or self.dataset.scenario.value
+            model_name = model_name or self.dataset.model
+
+            result, index_info = self.dataset.calculate_index(
+                timeframe,
+                start_date,
+                end_date,
+                self._current_analysis['geometry'],
+                self._current_analysis['index']
+            )
+
+            geometry_bounds = self._current_analysis['geometry'].bounds()
+            region = geometry_bounds.getInfo()['coordinates'][0]
+
+            # Create export directory
+            import os
+            folder_path = f"CMIP6_Exports/{index_info.name}/{model_name}/{scenario_name}"
+            os.makedirs(folder_path, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            task = ee.batch.Export.image.toDrive(
+                image=result,
+                description=f'cmip6_{index_info.name}_{model_name}_{scenario_name}_{period}_{year}_{timestamp}',
+                folder=folder_path,
+                scale=10000,
+                region=region,
+                maxPixels=1e9
+            )
+            
+            task.start()
+            print(f"Started export task for {year}")
+            
+        except Exception as e:
+            print(f"Export error: {str(e)}")
+            raise e

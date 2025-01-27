@@ -65,7 +65,7 @@ class CMIP6Dataset:
         """Initialize dataset with specified model and scenario"""
         if model_name not in self.list_available_models():
             raise ValueError(f"Invalid model name: {model_name}")
-        
+        self.model = model_name
         self.model_name = model_name
         self.scenario = scenario
         self.base_collection_id = "NASA/GDDP-CMIP6"

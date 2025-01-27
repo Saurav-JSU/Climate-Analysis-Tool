@@ -167,7 +167,67 @@ class CMIP6Indices:
             units='days',
             min_value=0,
             max_value=365
-        )
+        ),
+
+        # Additional precipitation indices
+        'r90p': IndexInfo(
+            name='Very Wet Days',
+            category=IndexCategory.PRECIPITATION,
+            description='Annual count of days when precipitation > 90th percentile',
+            units='days',
+            min_value=0,
+            max_value=365
+        ),
+        'r95p': IndexInfo(
+            name='Extremely Wet Days',
+            category=IndexCategory.PRECIPITATION, 
+            description='Annual count of days when precipitation > 95th percentile',
+            units='days',
+            min_value=0,
+            max_value=365
+        ),
+        'r99p': IndexInfo(
+            name='Exceptionally Wet Days',
+            category=IndexCategory.PRECIPITATION,
+            description='Annual count of days when precipitation > 99th percentile',
+            units='days',
+            min_value=0,
+            max_value=365
+        ),
+        'prcptot': IndexInfo(
+            name='Annual Total Wet-day Precipitation',
+            category=IndexCategory.PRECIPITATION,
+            description='Annual total precipitation from days ≥ 1mm',
+            units='mm',
+            min_value=0,
+            max_value=3000
+        ),
+
+        # Additional temperature indices
+        'tn10p': IndexInfo(
+            name='Cool Nights',
+            category=IndexCategory.TEMPERATURE,
+            description='Percentage of days when TN < 10th percentile',
+            units='%',
+            min_value=0,
+            max_value=100
+        ),
+        'tx90p': IndexInfo(
+            name='Warm Days',
+            category=IndexCategory.TEMPERATURE,
+            description='Percentage of days when TX > 90th percentile',
+            units='%',
+            min_value=0,
+            max_value=100
+        ),
+        'gsl': IndexInfo(
+            name='Growing Season Length',
+            category=IndexCategory.TEMPERATURE,
+            description='Annual count between first span of 6 days with T>5°C and first span of 6 days with T<5°C',
+            units='days',
+            min_value=0,
+            max_value=365
+        ),
     }
 
     @classmethod
@@ -320,6 +380,74 @@ class CMIP6Indices:
                     collection, condition
                 )
             
+            # New index calculations
+            elif index_name == 'r90p':
+                # Calculate 90th percentile precipitation threshold
+                threshold = collection.select(['precipitation'])\
+                    .reduce(ee.Reducer.percentile([90]))
+                # Count days above threshold
+                result = collection.select(['precipitation'])\
+                    .map(lambda img: img.gt(threshold))\
+                    .sum()
+
+            elif index_name == 'r95p':
+                # Calculate 95th percentile precipitation threshold
+                threshold = collection.select(['precipitation'])\
+                    .reduce(ee.Reducer.percentile([95]))
+                # Count days above threshold  
+                result = collection.select(['precipitation'])\
+                    .map(lambda img: img.gt(threshold))\
+                    .sum()
+
+            elif index_name == 'r99p':
+                # Calculate 99th percentile precipitation threshold
+                threshold = collection.select(['precipitation'])\
+                    .reduce(ee.Reducer.percentile([99]))
+                # Count days above threshold
+                result = collection.select(['precipitation'])\
+                    .map(lambda img: img.gt(threshold))\
+                    .sum()
+
+            elif index_name == 'prcptot':
+                # Calculate total precipitation from wet days
+                result = collection.select(['precipitation'])\
+                    .map(lambda img: img.updateMask(img.gte(precip_threshold)))\
+                    .sum()
+
+            elif index_name == 'tn10p':
+                # Calculate 10th percentile of minimum temperature
+                threshold = collection.select(['tasmin'])\
+                    .reduce(ee.Reducer.percentile([10]))
+                # Count days below threshold
+                result = collection.select(['tasmin'])\
+                    .map(lambda img: img.lt(threshold))\
+                    .sum()
+
+            elif index_name == 'tx90p':
+                # Calculate 90th percentile of maximum temperature
+                threshold = collection.select(['tasmax'])\
+                    .reduce(ee.Reducer.percentile([90]))
+                # Count days above threshold
+                result = collection.select(['tasmax'])\
+                    .map(lambda img: img.gt(threshold))\
+                    .sum()
+
+            elif index_name == 'gsl':
+                # Growing Season Length
+                # Start: First span of 6 days with daily mean temperature > 5°C
+                # End: First span of 6 days with daily mean temperature < 5°C
+                temp_threshold = 5 + 273.15  # Convert to Kelvin
+                
+                def calc_daily_mean(img):
+                    return img.select(['tasmax']).add(img.select(['tasmin'])).divide(2)
+                
+                daily_mean = collection.map(calc_daily_mean)
+                warm_days = daily_mean.map(lambda img: img.gt(temp_threshold))
+                
+                # Find start and end of growing season
+                result = self._calculate_consecutive_days(warm_days, 
+                    lambda img: img.gt(0), max_only=True)
+
             else:
                 raise ValueError(f"Index calculation not implemented: {index_name}")
             

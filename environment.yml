@@ -1,4 +1,4 @@
-name: gmap
+name: gmap2
 channels:
   - conda-forge
   - defaults
